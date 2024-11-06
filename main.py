@@ -11,33 +11,39 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 import pickle
 import argparse
 
+# 参数设置
 def get_args():
     parser = argparse.ArgumentParser(description='Image Feature Extraction and Logistic Regression Training')
-    parser.add_argument('--features', type=str, default=None,
+    parser.add_argument('--features', type=str, default='features_new.npy',
                         help='Path to the features file (npy format). If not provided, features will be extracted.')
-    parser.add_argument('--model', type=str, default=None,
+    parser.add_argument('--model', type=str, default='model_new.pkl',
                         help='Path to the pre-trained model file. If not provided, a new model will be trained.')
     return parser.parse_args()
 
+# 图像预处理
 def load_image(image_path):
     img = Image.open(image_path).convert('RGB')
     img_tensor = preprocess(img)
     img_tensor = img_tensor.unsqueeze(0)  # 增加 batch 维度
     return img_tensor
 
+# 特征提取
 def extract_features(image_path, pre_model):
     img_tensor = load_image(image_path)
     with torch.no_grad():  # 不计算梯度
         features = pre_model(img_tensor)
     return features.squeeze().numpy()  # 返回特征向量并去掉多余的维度
 
+# 特征保存
 def save_features(features_dict, save_path):
     np.save(save_path, features_dict)
 
+# 特征加载
 def load_features(load_path):
     return np.load(load_path, allow_pickle=True).item()
 
 def main():
+    # 数据预处理
     global preprocess  # 定义为全局变量
     preprocess = transforms.Compose([
         transforms.Resize(256),
@@ -46,23 +52,22 @@ def main():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
+    # 模型设置
     pre_model = models.resnet50(pretrained=True)
     pre_model = nn.Sequential(*list(pre_model.children())[:-1])
     pre_model.eval()
 
-    # 提取 UC Merced Land Use Dataset 的图像特征
-    data_folder = 'data/UCMerced_LandUse/Images'  # 数据集图像所在文件夹
+    # 提取图像特征
+    data_folder = 'data/UCMerced_LandUse/Images'
     features_dict = {}
-    features_file = 'uc_merced_features_with_labels_test.npy'
-    model_file = 'logistic_model_test.pkl'
 
+    # 获取参数
     args = get_args()
-    if args.features:
-        features_file = args.features  # 使用用户指定的特征文件
-    if args.model:
-        model_file = args.model  # 使用用户指定的模型文件
+    features_file = args.features
+    model_file = args.model
 
-    if features_file is not None and os.path.exists(features_file):
+    # 提取特征
+    if os.path.exists(features_file):
         features_dict = load_features(features_file)
         print("Loaded features from existing file.")
     else:
@@ -94,22 +99,19 @@ def main():
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    if model_file is not None and os.path.exists(model_file):
+    # 训练逻辑回归模型
+    if os.path.exists(model_file):
         with open(model_file, 'rb') as f:
             loaded_model = pickle.load(f)
         print("Loaded existing model.")
-
         y_pred = loaded_model.predict(X_test)
-
     else:
-        # 训练逻辑回归模型
         print("Training new model\n")
         Logisticmodel = LogisticRegression(max_iter=1000, solver='saga')
         Logisticmodel.fit(X_train, y_train)
         print("Finished training")
         with open(model_file, 'wb') as f:
             pickle.dump(Logisticmodel, f)
-        # 预测
         y_pred = Logisticmodel.predict(X_test)
 
     # 模型评估
